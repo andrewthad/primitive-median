@@ -57,24 +57,24 @@ entropyCount = 16
 
 entropy :: PrimArray Int
 entropy = runST $ do
-  m <- PM.newByteArray (PM.sizeOf (undefined :: Word) * entropyCount)
-  PM.writeByteArray m  0 (0x64C7D840A9DD9517 :: Word)
-  PM.writeByteArray m  1 (0x8C222C5F3E120F73 :: Word)
-  PM.writeByteArray m  2 (0xDDE6A2B788A962BA :: Word)
-  PM.writeByteArray m  3 (0x318AA78133F5C815 :: Word)
-  PM.writeByteArray m  4 (0x94DE99B9C5035ADA :: Word)
-  PM.writeByteArray m  5 (0x304935BCE8C92867 :: Word)
-  PM.writeByteArray m  6 (0x34F584518B5333BB :: Word)
-  PM.writeByteArray m  7 (0xAB4BAD95AE9F11FB :: Word)
-  PM.writeByteArray m  8 (0x3C612675F491B05E :: Word)
-  PM.writeByteArray m  9 (0xA842BAF0C6A39FAE :: Word)
-  PM.writeByteArray m 10 (0xF4669E626DCDEAB9 :: Word)
-  PM.writeByteArray m 11 (0x36B064B35405BA10 :: Word)
-  PM.writeByteArray m 12 (0x5AA8FF325AD1CF66 :: Word)
-  PM.writeByteArray m 13 (0x5385F92445FFD7CD :: Word)
-  PM.writeByteArray m 14 (0x8F1900754853CA6A :: Word)
-  PM.writeByteArray m 15 (0xB7CB335C587B727C :: Word)
-  PM.unsafeFreezeByteArray m
+  m <- newPrimArray entropyCount
+  writePrimArray m  0 (0x64C7D840A9DD9517 :: Int)
+  writePrimArray m  1 (0x8C222C5F3E120F73 :: Int)
+  writePrimArray m  2 (0xDDE6A2B788A962BA :: Int)
+  writePrimArray m  3 (0x318AA78133F5C815 :: Int)
+  writePrimArray m  4 (0x94DE99B9C5035ADA :: Int)
+  writePrimArray m  5 (0x304935BCE8C92867 :: Int)
+  writePrimArray m  6 (0x34F584518B5333BB :: Int)
+  writePrimArray m  7 (0xAB4BAD95AE9F11FB :: Int)
+  writePrimArray m  8 (0x3C612675F491B05E :: Int)
+  writePrimArray m  9 (0xA842BAF0C6A39FAE :: Int)
+  writePrimArray m 10 (0xF4669E626DCDEAB9 :: Int)
+  writePrimArray m 11 (0x36B064B35405BA10 :: Int)
+  writePrimArray m 12 (0x5AA8FF325AD1CF66 :: Int)
+  writePrimArray m 13 (0x5385F92445FFD7CD :: Int)
+  writePrimArray m 14 (0x8F1900754853CA6A :: Int)
+  writePrimArray m 15 (0xB7CB335C587B727C :: Int)
+  unsafeFreezePrimArray m
 
 specInt8 :: MutablePrimArray s Int8 -> ST s Int8
 specInt8 x = medianTemplate x
