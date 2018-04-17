@@ -38,6 +38,7 @@ test-suite test
     common
   build-depends:
       base >=4.7 && <5
+    , primitive 
     , primitive-median
     , containers
     , QuickCheck
