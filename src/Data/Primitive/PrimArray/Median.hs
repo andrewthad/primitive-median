@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -O2 -Wall #-}
 
@@ -32,8 +33,10 @@ module Data.Primitive.PrimArray.Median
   , word8
   ) where
 
+import Control.Monad (mapM_)
 import Control.Monad.Primitive
 import Control.Monad.ST (runST,ST)
+import Data.Bits
 import Data.Int
 import Data.Primitive.PrimArray
 import Data.Primitive.Types
@@ -46,8 +49,81 @@ import Data.Word
 -- to ST and then generalize it later in type-specific functions. This
 -- makes it possible to avoid needing specialized copy of each type-specific
 -- function for both IO and for ST.
-medianTemplate :: (Prim a, Ord a) => MutablePrimArray s a -> ST s a
-medianTemplate !m = error "write me"
+medianTemplate
+  :: forall s a. (Num a, Ord a, Prim a)
+  => MutablePrimArray s a
+  -> ST s a
+medianTemplate !m = if l == 0
+  then pure 0
+  else select 0 m 0 l (div l 2)
+  where
+    l = sizeofMutablePrimArray m
+
+partition
+  :: forall s a. (Ord a, Prim a)
+  => MutablePrimArray s a -- ^ stuff
+  -> Int      -- ^ left-most index
+  -> Int      -- ^ right-most index
+  -> Int      -- ^ pivot index
+  -> ST s Int -- ^ pivot
+partition !mpa !left !right !pivotIndex = do
+  pivotValue <- readPrimArray mpa pivotIndex
+  _ <- swap mpa pivotIndex right -- move pivot to end 
+  storeIndexM :: MutablePrimArray s Int <- newPrimArray 1
+  _ <- writePrimArray storeIndexM 0 left 
+  _ <- mapM_ (\i -> do
+      atI <- readPrimArray mpa i
+      if atI < pivotValue
+        then do
+          storeIndex <- readPrimArray storeIndexM 0
+          swap mpa storeIndex i 
+          _ <- incrementSingleton storeIndexM
+          pure () 
+        else pure ()) [left .. right - 1]
+  storeIndex <- readPrimArray storeIndexM 0 
+  _ <- swap mpa right storeIndex -- move pivot to its final place 
+  pure storeIndex
+ 
+incrementSingleton :: (Prim a, PrimMonad m, Num a) => MutablePrimArray (PrimState m) a -> m ()
+incrementSingleton !mpa = do
+  i <- readPrimArray mpa 0
+  writePrimArray mpa 0 (i + 1)
+
+swap
+  :: (Prim a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> Int
+  -> Int
+  -> m ()
+swap !mpa !a !b = do
+  a' <- readPrimArray mpa a
+  b' <- readPrimArray mpa b
+  writePrimArray mpa a b'
+  writePrimArray mpa b a'
+
+select
+  :: forall s a. (Ord a, Prim a)
+  => Int                    -- ^ iteration
+  -> MutablePrimArray s a   -- ^ stuff
+  -> Int                    -- ^ left-most index
+  -> Int                    -- ^ right-most index
+  -> Int                    -- ^ k
+  -> ST s a
+select !iter !mpa !left !right !k = do
+  pivotIndex <- partition mpa left right p 
+  if k == right
+    then readPrimArray mpa left
+    else if k == pivotIndex
+      then readPrimArray mpa k
+      else if k < pivotIndex
+        then do
+          select (iter + 1) mpa left (pivotIndex - 1) k
+        else do
+          select (iter + 1) mpa (pivotIndex + 1) right k
+  where
+    p = indexEntropy iter `mod` (l - remainingStuffLen) + left
+    remainingStuffLen = left - right + 1
+    l = sizeofMutablePrimArray mpa
 
 indexEntropy :: Int -> Int
 indexEntropy !ix = indexPrimArray entropy ((entropyCount - 1) .&. ix)
@@ -55,25 +131,28 @@ indexEntropy !ix = indexPrimArray entropy ((entropyCount - 1) .&. ix)
 entropyCount :: Int
 entropyCount = 16
 
+wordToInt :: Word -> Int
+wordToInt = fromIntegral
+
 entropy :: PrimArray Int
 entropy = runST $ do
   m <- newPrimArray entropyCount
-  writePrimArray m  0 (0x64C7D840A9DD9517 :: Int)
-  writePrimArray m  1 (0x8C222C5F3E120F73 :: Int)
-  writePrimArray m  2 (0xDDE6A2B788A962BA :: Int)
-  writePrimArray m  3 (0x318AA78133F5C815 :: Int)
-  writePrimArray m  4 (0x94DE99B9C5035ADA :: Int)
-  writePrimArray m  5 (0x304935BCE8C92867 :: Int)
-  writePrimArray m  6 (0x34F584518B5333BB :: Int)
-  writePrimArray m  7 (0xAB4BAD95AE9F11FB :: Int)
-  writePrimArray m  8 (0x3C612675F491B05E :: Int)
-  writePrimArray m  9 (0xA842BAF0C6A39FAE :: Int)
-  writePrimArray m 10 (0xF4669E626DCDEAB9 :: Int)
-  writePrimArray m 11 (0x36B064B35405BA10 :: Int)
-  writePrimArray m 12 (0x5AA8FF325AD1CF66 :: Int)
-  writePrimArray m 13 (0x5385F92445FFD7CD :: Int)
-  writePrimArray m 14 (0x8F1900754853CA6A :: Int)
-  writePrimArray m 15 (0xB7CB335C587B727C :: Int)
+  writePrimArray m  0 (wordToInt (0x64C7D840A9DD9517 :: Word))
+  writePrimArray m  1 (wordToInt (0x8C222C5F3E120F73 :: Word))
+  writePrimArray m  2 (wordToInt (0xDDE6A2B788A962BA :: Word))
+  writePrimArray m  3 (wordToInt (0x318AA78133F5C815 :: Word))
+  writePrimArray m  4 (wordToInt (0x94DE99B9C5035ADA :: Word))
+  writePrimArray m  5 (wordToInt (0x304935BCE8C92867 :: Word))
+  writePrimArray m  6 (wordToInt (0x34F584518B5333BB :: Word))
+  writePrimArray m  7 (wordToInt (0xAB4BAD95AE9F11FB :: Word))
+  writePrimArray m  8 (wordToInt (0x3C612675F491B05E :: Word))
+  writePrimArray m  9 (wordToInt (0xA842BAF0C6A39FAE :: Word))
+  writePrimArray m 10 (wordToInt (0xF4669E626DCDEAB9 :: Word))
+  writePrimArray m 11 (wordToInt (0x36B064B35405BA10 :: Word))
+  writePrimArray m 12 (wordToInt (0x5AA8FF325AD1CF66 :: Word))
+  writePrimArray m 13 (wordToInt (0x5385F92445FFD7CD :: Word))
+  writePrimArray m 14 (wordToInt (0x8F1900754853CA6A :: Word))
+  writePrimArray m 15 (wordToInt (0xB7CB335C587B727C :: Word))
   unsafeFreezePrimArray m
 
 specInt8 :: MutablePrimArray s Int8 -> ST s Int8
@@ -85,5 +164,5 @@ int8 = stToPrim . specInt8
 specWord8 :: MutablePrimArray s Word8 -> ST s Word8
 specWord8 x = medianTemplate x
 
-word8 :: PrimMonad m => MutablePrimArray (PrimState m) Int8 -> m Int8
-word8 = stToPrim . specInt8
+word8 :: PrimMonad m => MutablePrimArray (PrimState m) Word8 -> m Word8
+word8 = stToPrim . specWord8
