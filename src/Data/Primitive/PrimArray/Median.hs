@@ -33,7 +33,6 @@ module Data.Primitive.PrimArray.Median
   , word8
   ) where
 
-import Control.Monad (mapM_)
 import Control.Monad.Primitive
 import Control.Monad.ST (runST,ST)
 import Data.Bits
@@ -59,6 +58,26 @@ medianTemplate !m = if l == 0
   where
     l = sizeofMutablePrimArray m
 
+go
+  :: (Prim a, Ord a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> a
+  -> m Int
+go !mpa !storeIx !ix !left !right !pivotValue =
+  if (ix >= left && ix < right)
+    then do
+      atIx <- readPrimArray mpa ix    
+      if atIx < pivotValue
+        then do
+          _ <- swap mpa storeIx ix
+          go mpa (storeIx + 1) (ix + 1) left right pivotValue
+        else pure storeIx
+    else pure storeIx
+
 partition
   :: forall s a. (Ord a, Prim a)
   => MutablePrimArray s a -- ^ stuff
@@ -69,26 +88,10 @@ partition
 partition !mpa !left !right !pivotIndex = do
   pivotValue <- readPrimArray mpa pivotIndex
   _ <- swap mpa pivotIndex right -- move pivot to end 
-  storeIndexM :: MutablePrimArray s Int <- newPrimArray 1
-  _ <- writePrimArray storeIndexM 0 left 
-  _ <- mapM_ (\i -> do
-      atI <- readPrimArray mpa i
-      if atI < pivotValue
-        then do
-          storeIndex <- readPrimArray storeIndexM 0
-          swap mpa storeIndex i 
-          _ <- incrementSingleton storeIndexM
-          pure () 
-        else pure ()) [left .. right - 1]
-  storeIndex <- readPrimArray storeIndexM 0 
+  storeIndex <- go mpa 0 left left right pivotValue
   _ <- swap mpa right storeIndex -- move pivot to its final place 
   pure storeIndex
  
-incrementSingleton :: (Prim a, PrimMonad m, Num a) => MutablePrimArray (PrimState m) a -> m ()
-incrementSingleton !mpa = do
-  i <- readPrimArray mpa 0
-  writePrimArray mpa 0 (i + 1)
-
 swap
   :: (Prim a, PrimMonad m)
   => MutablePrimArray (PrimState m) a
@@ -121,9 +124,9 @@ select !iter !mpa !left !right !k = do
         else do
           select (iter + 1) mpa (pivotIndex + 1) right k
   where
-    p = indexEntropy iter `mod` (l - remainingStuffLen) + left
-    remainingStuffLen = left - right + 1
-    l = sizeofMutablePrimArray mpa
+    !p = indexEntropy iter `mod` (l - remainingStuffLen) + left
+    !remainingStuffLen = left - right + 1
+    !l = sizeofMutablePrimArray mpa
 
 indexEntropy :: Int -> Int
 indexEntropy !ix = indexPrimArray entropy ((entropyCount - 1) .&. ix)
