@@ -1,7 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
---{-# OPTIONS_GHC -O2 -Wall #-}
+--{-# OPTIONS_GHC -O2 -Wall -fno-warn-name-shadowing #-}
 
 {-|
 The algorithm used in all of these variants is quickselect. It takes
@@ -42,136 +43,8 @@ import Data.Primitive.PrimArray
 import Data.Primitive.Types
 import Data.Word
 
-nth
-  :: forall a m. (Num a, Ord a, Prim a, PrimMonad m)
-  => MutablePrimArray (PrimState m) a
-  -> Int --     |
-  -> m a --     v 
-         -- 0,1,2,3,4,5,6,7
-         -- l = 8
-         -- ix = 2
-         -- length of ys = 3
-         -- length of zs = l - length of ys = 5
-         -- offset into mpa of z = lengthOfYs
-         -- 
-nth !mpa !n = do 
-  !ix <- partition' mpa
-  if (ix + 1) == n
-    then readPrimArray mpa 0
-    else if (ix + 1) > n
-      then do
-        !ys <- resizeMutablePrimArray mpa (ix + 1)
-        nth ys n
-      else do
-        !zs <- newPrimArray (l - ix)
-        copyMutablePrimArray zs 0 mpa (ix + 1) (l - (ix + 1))
-        nth zs $! n - (ix + 1) - 1
-  where
-    !l = sizeofMutablePrimArray mpa
-
-kth
-  :: forall a m. (Num a, Ord a, Prim a, PrimMonad m)
-  => MutablePrimArray (PrimState m) a
-  -> Int
-  -> Int
-  -> Int
-  -> m a
-kth !mpa !l !r !k = if (k > 0 && k <= r - l + 1)
-  then do
-    !ix <- partition mpa l r
-    if (ix - l == k - 1)
-      then readPrimArray mpa ix
-      else if (ix - l > k - 1)
-        then kth mpa l (ix - 1) k
-        else kth mpa (ix + 1) r (k - ix + l - 1)
-  else pure 0
-
--- This is not exported. It's difficult to trust GHC to always specialize
--- exported functions. Since there are a limited number of types for
--- which we are interested in using this function, we simply do all of
--- the specialization in this module. Notice that we specialize the monad
--- to ST and then generalize it later in type-specific functions. This
--- makes it possible to avoid needing specialized copy of each type-specific
--- function for both IO and for ST.
-medianTemplate
-  :: forall a m. (Num a, Ord a, Prim a, PrimMonad m)
-  => (a -> a) -- divide by 2
-  -> MutablePrimArray (PrimState m) a
-  -> m a
-medianTemplate !f !mpa
-  | n < 1  = pure 0
-  | even n = do
-      !t0 <- nth mpa (div n 2)
-      !t1 <- nth mpa (div n 2 - 1)
-      pure $! f (t0 + t1)
-  | otherwise = nth mpa (div n 2)
-  where
-    !n = sizeofMutablePrimArray mpa
-
-partition' :: (PrimMonad m, Prim a, Ord a) => MutablePrimArray (PrimState m) a -> m Int
-partition' !mpa = do
-  let !left = 0
-      !right = sizeofMutablePrimArray mpa
-  partition mpa left right
-
-partition :: (PrimMonad m, Prim a, Ord a) => MutablePrimArray (PrimState m) a -> Int -> Int -> m Int
-partition !mpa !left !right = do
-  let !i = left
-      !j = left
-  !x <- readPrimArray mpa right
-  !atStart <- readPrimArray mpa j
-  !ix <- go x j (right - 1) i mpa
-  swap mpa ix right
-  pure i
-
-go :: (PrimMonad m, Prim a, Ord a)
-  => a
-  -> Int -- starting point, j
-  -> Int -- stopping point, r - 1
-  -> Int -- return value, i
-  -> MutablePrimArray (PrimState m) a
-  -> m Int
-go !x !l !r !ix !mpa = if l <= r
-  then do
-    !isLessThanEq <- lessThanEq mpa l x
-    if isLessThanEq
-      then do
-        swap mpa ix l
-        go x (l + 1) r (ix + 1) mpa
-      else
-        pure ix
-  else pure ix
-
--- is the given value of type 'a' less than or equal to the value at the index?
-lessThanEq
-  :: (PrimMonad m, Prim a, Ord a)
-  => MutablePrimArray (PrimState m) a
-  -> Int -- index
-  -> a   -- element
-  -> m Bool
-lessThanEq !mpa !ix !el = do
-  !x <- readPrimArray mpa ix
-  if x <= el
-    then pure True
-    else pure False
-
-foldlMutablePrimArray'
-  :: forall m a b. (Prim a, PrimMonad m)
-  => (b -> a -> b)
-  -> b
-  -> MutablePrimArray (PrimState m) a
-  -> m b
-foldlMutablePrimArray' f z0 mpa = go 0 z0
-  where
-    !sz = sizeofMutablePrimArray mpa
-    go !i !acc = if i < sz
-      then do
-        ix <- readPrimArray mpa i
-        go (i + 1) (f acc ix)
-      else pure acc
-
 swap
-  :: (Prim a, PrimMonad m)
+  :: forall m a. (Prim a, PrimMonad m)
   => MutablePrimArray (PrimState m) a
   -> Int
   -> Int
@@ -181,6 +54,105 @@ swap !mpa !a !b = do
   b' <- readPrimArray mpa b
   writePrimArray mpa a b'
   writePrimArray mpa b a'
+
+partition
+  :: forall m a. (Ord a, Prim a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a -- ^ stuff
+  -> Int      -- ^ left-most index
+  -> Int      -- ^ right-most index
+  -> Int      -- ^ pivot index
+  -> m Int    -- ^ pivot
+partition !mpa !left !right !pivotIndex = do
+  pivotValue <- readPrimArray mpa pivotIndex
+  _ <- swap mpa pivotIndex right -- move pivot to end 
+  storeIndex <- go mpa 0 left left right pivotValue
+  _ <- swap mpa right storeIndex -- move pivot to its final place 
+  pure storeIndex
+  where
+    go
+      :: forall m a. (Prim a, Ord a, PrimMonad m)
+      => MutablePrimArray (PrimState m) a
+      -> Int
+      -> Int
+      -> Int
+      -> Int
+      -> a
+      -> m Int
+    go !mpa !storeIx !ix !left !right !pivotValue =
+      if (ix >= left && ix < right)
+        then do
+          atIx <- readPrimArray mpa ix    
+          if atIx < pivotValue
+            then do
+              _ <- swap mpa storeIx ix
+              go mpa (storeIx + 1) (ix + 1) left right pivotValue
+            else pure storeIx
+        else pure storeIx
+
+debugMode :: Bool
+debugMode = True
+
+partialSort
+  :: forall m a. (Ord a, Prim a, PrimMonad m)
+  => Int -- ^ iteration
+  -> MutablePrimArray (PrimState m) a -- ^ stuff
+  -> Int -- ^ slice left
+  -> Int -- ^ slice right
+  -> Int -- ^ final left
+  -> Int -- ^ final right
+  -> m ()
+partialSort !iter !mpa !sl !sr !fl !fr
+  | (sl == fl && sr == fr) = pure ()
+  | debugMode && fl < sl = debugInfo "left invariant violated"
+  | debugMode && fr > sr = debugInfo "right invariant violated"
+  | debugMode && sr < sl = debugInfo "invariant violated"
+  | debugMode && iter > 50000 = debugInfo "ran too long"
+  | otherwise = do
+    let !remainingStuffLen = sr - sl + 1
+        !p = sl + (indexEntropy iter `mod` remainingStuffLen)
+    !pivotIndex <- partition mpa sl sr p
+    if | pivotIndex == sl -> if pivotIndex == fl
+           then partialSort (iter + 1) mpa pivotIndex sr fr fr
+           else partialSort (iter + 1) mpa (sl + 1) sr fl fr
+       | pivotIndex == sr -> if pivotIndex == fr
+           then partialSort (iter + 1) mpa sl pivotIndex fl fl
+           else partialSort (iter + 1) mpa sl (sr - 1) fl fr
+       | fl < pivotIndex -> if True -- what was here
+           then partialSort (iter + 1) mpa pivotIndex sr fl fr
+           else partialSort (iter + 1) mpa sl pivotIndex fl fr
+  where
+  debugInfo descr = error
+    ("partialSort: " ++ descr ++ " [size=" ++ show (sizeofMutablePrimArray mpa) ++
+     ",sl=" ++ show sl ++ ",sr=" ++ show sr ++ ",fl=" ++ show fl ++
+     ",fr=" ++ show fr ++ ",iter=" ++ show iter ++ "]"
+    )
+
+medianTemplate
+  :: forall m a. (Num a, Ord a, Prim a, PrimMonad m)
+  => (a -> a) -- divide by 2
+  -> MutablePrimArray (PrimState m) a
+  -> m a
+medianTemplate !f !mpa
+  | l < 1 = pure 0
+  | even l = do
+      let !fl = div l 2 - 1
+          !fr = div l 2
+          !sl = 0
+          !sr = l - 1
+      !_ <- partialSort 0 mpa sl sr fl fr
+      !t0 <- readPrimArray mpa fl
+      !t1 <- readPrimArray mpa fr
+      pure $! f (t0 + t1)
+  | otherwise = do
+      let !fl = div l 2 
+          !fr = div l 2
+          !sl = 0
+          !sr = l - 1
+      !_ <- partialSort 0 mpa sl sr fl fr
+      !t0 <- readPrimArray mpa fr
+      pure t0
+  where
+    !l = sizeofMutablePrimArray mpa
 
 indexEntropy :: Int -> Int
 indexEntropy !ix = indexPrimArray entropy ((entropyCount - 1) .&. ix)
@@ -212,20 +184,21 @@ entropy = runST $ do
   writePrimArray m 15 (wordToInt (0xB7CB335C587B727C :: Word))
   unsafeFreezePrimArray m
 
-integralDivBy2 :: Integral a => a -> a
-integralDivBy2 x = div x 2
+medianFractional
+  :: forall m a. (Fractional a, Ord a, Prim a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> m a
+medianFractional = medianTemplate (\x -> x / 2)
 
-fractionalDivBy2 :: Fractional a => a -> a
-fractionalDivBy2 x = x / 2
-
-specInt8 :: MutablePrimArray s Int8 -> ST s Int8
-specInt8 x = medianTemplate integralDivBy2 x
+medianIntegral
+  :: forall m a. (Integral a, Ord a, Prim a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> m a
+medianIntegral = medianTemplate (\x -> div x 2)
 
 int8 :: PrimMonad m => MutablePrimArray (PrimState m) Int8 -> m Int8
-int8 = stToPrim . specInt8
-
-specWord8 :: MutablePrimArray s Word8 -> ST s Word8
-specWord8 x = medianTemplate integralDivBy2 x
+int8 x = stToPrim $! medianIntegral x
 
 word8 :: PrimMonad m => MutablePrimArray (PrimState m) Word8 -> m Word8
-word8 = stToPrim . specWord8
+word8 x = stToPrim $! medianIntegral x
+

@@ -32,10 +32,8 @@ library
 test-suite test
   type: exitcode-stdio-1.0
   main-is: Main.hs
-  other-modules: Common
   hs-source-dirs:
     test
-    common
   build-depends:
       base >=4.7 && <5
     , primitive 
