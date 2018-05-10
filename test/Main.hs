@@ -11,7 +11,7 @@ import Data.Ord
 import qualified Data.Map.Strict as M
 import qualified GHC.OldList as L
 
-import qualified Data.Primitive.PrimArray.Poo as PAM
+import qualified Data.Primitive.PrimArray.Foo as PAM
 import Control.Monad.ST
 import Data.Primitive.PrimArray
 import Data.Primitive.Types (Prim)

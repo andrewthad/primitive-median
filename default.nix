@@ -2,8 +2,8 @@
 let fetchNixpkgs = import ./nix/fetchNixpkgs.nix;
     nixpkgs = fetchNixpkgs {
       rev = "c4dea092a3831fa3b0cd86b72282d89141b6d945";
-      sha256 = "0sh4f8w30sya7vydwm86dni1ylz59hiq627df1dv1zg7riq036cw";
-      sha256unpacked = "0fc6y2yjlfbss7cq7lgah0xvlnyas5v3is9r5bxyyp7rkwlyvny4";
+      sha256 = "04c83ivnyaayx724xbkpv02xad83xmzi4mjns0hd4sk15m84s5hn"; 
+      sha256unpacked = "1gcjmv7fq3lfd5agija20v9qr5qfqs4m9jlrbbxjagqvhp665in8"; 
     };
     pkgs = import nixpkgs { config = {}; overlays = []; };
     inherit (pkgs) haskell;

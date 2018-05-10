@@ -1,144 +1,160 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-{-# OPTIONS_GHC -Wall #-}
+
+--{-# OPTIONS_GHC -O2 -Wall -fno-warn-name-shadowing #-}
+
+{-|
+The algorithm used in all of these variants is quickselect. It takes
+the median of an array in average case /O(n)/ time, where /n/ is the length
+of the array. A description of this algorithm can be found
+on wikipedia: https://en.wikipedia.org/wiki/Quickselect.
+It destroys the mutable array it is given as an argument and provides
+the caller its median element. Consequently, taking the median of an immutable array
+requires first allocating a mutable array and filling it with the
+immutable array's contents using 'copyPrimArray'.
+
+The variant of quickselect provided here does not use random pivots.
+This library uses pregenerated random number used as the source
+of entropy. The effect on the argument array, while destructive, is entirely
+deterministic. Because the pivot chosen in a deterministic fashion,
+an adversarial user could choose an input that degrades the performance
+of the algorithm to /O(n^2)/. Do not use this on input provided by
+a user expected to be adversarial.
+
+Mathematically, median is not defined for empty arrays. However, instead
+of throwing an error, all median variants provided in this module will
+return 0 when given an empty array as input. If the length of the array
+divides two evenly, there is no middle element. This library follows
+the common convention of taking the arithmetic mean of the two middle
+elements in this case.
+|-}
 
 module Data.Primitive.PrimArray.Foo where
 
 import Control.Monad.Primitive
-import Control.Monad.ST (runST)
+import Control.Monad.ST (runST,ST)
 import Data.Bits
 import Data.Int
 import Data.Primitive.PrimArray
 import Data.Primitive.Types
-import Data.Proxy (Proxy(..))
 import Data.Word
+import Debug.Trace
 
-spure :: Applicative f => a -> f a 
-spure x = pure $! x
-{-# INLINE spure #-}
-
-lpure :: Applicative f => a -> f a
-lpure = pure
-{-# INLINE lpure #-}
-
-medianIntegral
-  :: forall m a. (Bounded a, Integral a, Ord a, Prim a, PrimMonad m)
+-- insertion sort
+sort
+  :: forall m a. (Ord a, Prim a, PrimMonad m)
   => MutablePrimArray (PrimState m) a
-  -> m a
-medianIntegral = constantSpaceMedian (fromIntegral) (div)
-
-medianFloating
-  :: forall m a. (Bounded a, RealFrac a, Ord a, Prim a, PrimMonad m)
-  => MutablePrimArray (PrimState m) a
-  -> m a
-medianFloating = constantSpaceMedian (floor) (/)
-
-int8 :: PrimMonad m => MutablePrimArray (PrimState m) Int8 -> m Int8
-int8 x = stToPrim $! medianIntegral x
-
-word8 :: PrimMonad m => MutablePrimArray (PrimState m) Word8 -> m Word8
-word8 x = stToPrim $! medianIntegral x
-
-constantSpaceMedian
-  :: forall m a. (Bounded a, Num a, Ord a, Prim a, PrimMonad m)
-  => (a -> Int)
-  -> (a -> a -> a) -- ^ divide by 2 for the even case
-  -> MutablePrimArray (PrimState m) a
-  -> m a -- ^ that there median...
-constantSpaceMedian f divF !mpa
-  | l < 1 = spure 0
-  | odd l = do
-      !count <- countOf f mpa 0
-      findMid f mpa 0 (numToCount - (f count))  
+  -> m ()
+sort !mpa
+  | l == 0 = pure ()
+  | l == 1 = pure ()
+  | l == 2 = do
+      !a0 <- readPrimArray mpa 0
+      !a1 <- readPrimArray mpa 1
+      if a0 < a1
+        then pure ()
+        else do
+          !_ <- writePrimArray mpa 0 a1
+          !_ <- writePrimArray mpa 0 a0
+          pure ()
   | otherwise = do
-      !count <- countOf f mpa 0
-      findMid2 divF f mpa 0 (numToCount - (f count))
+      let go !ix = if ix < l
+            then do
+              let go' !jx = do
+                    !ajm1 <- readPrimArray mpa (jx - 1)
+                    !aj   <- readPrimArray mpa jx
+                    if (jx > 0 && ajm1 > aj)
+                      then do
+                        !_ <- swap mpa jx (jx - 1)
+                        go' (jx - 1)
+                      else pure ()
+              go' ix
+            else pure ()
+      go 1
   where
     !l = sizeofMutablePrimArray mpa
-    !numToCount = div l 2 + 1
 
-makesCountMutably
-  :: forall m a. (Bounded a, Num a, Prim a, PrimMonad m)
-  => (a -> Int)
+median
+  :: forall m a. (Num a, Ord a, Prim a, Show a, PrimMonad m)
+  => (a -> a) -- ^ div by 2
   -> MutablePrimArray (PrimState m) a
-  -> m (MutablePrimArray (PrimState m) a)
-makesCountMutably !f !mpa = do
-  let !n = numPossibleValues f (Proxy :: Proxy a) 
-      !sz = sizeofMutablePrimArray mpa 
-  !counts <- newPrimArray n -- do these start out at 0? probably not.
-  let go !ix = if ix < sz
-        then do
-          -- !atIx <- readPrimArray counts ix
-          !_ <- writePrimArray counts ix 1
-          go (ix + 1)
-        else pure ()
-  go 0
-  pure counts
-
-numPossibleValues
-  :: forall a. (Bounded a)
-  => (a -> Int) -- ^ floor for Fractional types, fromIntegral for Integral types
-  -> Proxy a    -- ^ the type
-  -> Int        -- ^ number of possible values in the type
-numPossibleValues f _ = f (maxBound :: a) + 1
-
--- make efficient table of counts for each possible value
-countOf
-  :: forall m a. (Bounded a, Num a, Prim a, PrimMonad m)
-  => (a -> Int) 
-  -> MutablePrimArray (PrimState m) a
-  -> Int
   -> m a
-countOf f !mpa !i = do
-  !counts <- makesCountMutably f mpa
-  !a <- readPrimArray counts i
-  spure a
-
-findMid
-  :: forall m a. (Bounded a, Num a, Prim a, PrimMonad m)
-  => (a -> Int)
-  -> MutablePrimArray (PrimState m) a
-  -> Int
-  -> Int
-  -> m a
-findMid f !mpa !i !numRemaining
-  | numRemaining < 1 = spure (fromIntegral i)
+median f !mpa
+  | l < 1 = pure 0
+--  | l < 6 = do
+--      !_ <- sort mpa
+--      if even l
+--        then do
+--          !t0 <- readPrimArray mpa (div l 2)
+--          !t1 <- readPrimArray mpa (div l 2 + 1)
+--          pure $! f (t0 + t1)
+--        else do
+--          !t0 <- readPrimArray mpa (div l 2)
+--          pure $! t0
+  | even l = do
+      let go :: Int -> m ()
+          go !ix = if ix < l
+            then do
+              !a <- readPrimArray mpa ix
+              traceShowM a
+            else pure ()
+      go 0
+      !t0 <- quickSelect mpa 0 0 (l - 1) (div l 2 - 1)
+      !t1 <- quickSelect mpa 0 0 (l - 1) (div l 2)
+      pure $! f (t0 + t1)
   | otherwise = do
-      !count <- countOf f mpa (i + 1)
-      findMid f mpa (i + 1) (numRemaining - f count)
+      !t0 <- quickSelect mpa 0 0 (l - 1) (div l 2)
+      pure $! t0
+  where
+    !l = sizeofMutablePrimArray mpa
 
-findMid2
-  :: forall m a. (Bounded a, Num a, Prim a, PrimMonad m)
-  => (a -> a -> a)
-  -> (a -> Int)
-  -> MutablePrimArray (PrimState m) a
-  -> Int
-  -> Int
-  -> m a
-findMid2 divF f !mpa !i !numRemaining = 
-  case compare numRemaining 0 of
-    LT -> spure (fromIntegral i)
-    GT -> do
-      !count <- countOf f mpa (i + 1)
-      findMid2 divF f mpa (i + 1) (numRemaining - f count)
-    EQ -> do
-      !count <- countOf f mpa (i + 1)
-      midAverage divF f mpa i (i + 1) (f count) 
+partition
+  :: forall m a. (Ord a, Prim a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> Int -- ^ left-most index
+  -> Int -- ^ right-most index
+  -> Int -- ^ pivot index
+  -> m Int
+partition !mpa !left !right !pivotIndex = do
+  !pivotValue <- readPrimArray mpa pivotIndex
+  !_ <- swap mpa pivotIndex right
+  let go !i !storeIndex = if i < right
+        then do
+          !listAtI <- readPrimArray mpa i
+          if listAtI < pivotValue
+            then do
+              !_ <- swap mpa storeIndex i 
+              go (i + 1) (storeIndex + 1)
+            else pure storeIndex
+        else pure storeIndex
+  !storeIndex <- go left left
+  !_ <- swap mpa right storeIndex
+  pure storeIndex
 
-midAverage
-  :: forall m a. (Bounded a, Num a, Prim a, PrimMonad m)
-  => (a -> a -> a) -- div by 2 function
-  -> (a -> Int)
-  -> MutablePrimArray (PrimState m) a
-  -> Int 
-  -> Int
-  -> Int
-  -> m a
-midAverage divF f !mpa !i !j 0 = do
-  !count <- countOf f mpa (j + 1)
-  midAverage divF f mpa i (j + 1) (f count)
-midAverage divF _ _ !i !j _ = spure (divF (fromIntegral i) (fromIntegral j))
+quickSelect
+  :: forall m a. (Ord a, Prim a, Show a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> Int -- ^ iteration 
+  -> Int -- ^ left-most index
+  -> Int -- ^ right-most index
+  -> Int -- ^ k
+  -> m a -- ^ k-th smallest element within [left .. right]
+quickSelect !mpa !iter !left !right !k
+  | left == right = do -- list contains only one element
+      !el <- readPrimArray mpa left
+      pure $! el
+  | otherwise = do
+      let !p = left + (indexEntropy iter `mod` remainingStuffLen)
+          !remainingStuffLen = right - left + 1
+      !pivotIndex <- partition mpa left right p
+      if k == pivotIndex
+        then do
+          !listAtK <- readPrimArray mpa k
+          pure $! listAtK
+        else if k < pivotIndex
+          then quickSelect mpa (iter + 1) left (pivotIndex - 1) k
+          else quickSelect mpa (iter + 1) (pivotIndex + 1) right k
 
 swap
   :: forall m a. (Prim a, PrimMonad m)
@@ -199,4 +215,29 @@ modifyMutablePrimArray f !mpa = do
   where
     !sz = sizeofMutablePrimArray mpa
 
+medianFractional
+  :: forall m a. (Fractional a, Ord a, Prim a, Show a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> m a
+medianFractional = median divFrac
+
+divFrac :: Fractional a => a -> a
+divFrac x = x / 2
+{-# INLINE divFrac #-}
+
+divInt :: Integral a => a -> a
+divInt x = div x 2
+{-# INLINE divInt #-}
+
+medianIntegral
+  :: forall m a. (Integral a, Ord a, Prim a, Show a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> m a
+medianIntegral = median divInt
+
+int8 :: PrimMonad m => MutablePrimArray (PrimState m) Int8 -> m Int8
+int8 x = stToPrim $! medianIntegral x
+
+word8 :: PrimMonad m => MutablePrimArray (PrimState m) Word8 -> m Word8
+word8 x = stToPrim $! medianIntegral x
 
