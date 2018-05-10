@@ -40,6 +40,8 @@ import Data.Primitive.PrimArray
 import Data.Primitive.Types
 import Data.Word
 
+import Debug.Trace
+
 -- insertion sort
 sort
   :: forall m a. (Ord a, Prim a, PrimMonad m)
@@ -75,7 +77,7 @@ sort !mpa
     !l = sizeofMutablePrimArray mpa
 
 median
-  :: forall m a. (Num a, Ord a, Prim a, PrimMonad m)
+  :: forall m a. (Num a, Ord a, Prim a, Show a, PrimMonad m)
   => (a -> a) -- ^ div by 2
   -> MutablePrimArray (PrimState m) a
   -> m a
@@ -92,11 +94,18 @@ median f !mpa
 --          !t0 <- readPrimArray mpa (div l 2)
 --          pure $! t0
   | even l = do
-      !t0 <- select mpa 0 0 (l - 1) (div l 2 - 1)
-      !t1 <- select mpa 0 0 (l - 1) (div l 2)
+      let go :: Int -> m ()
+          go !ix = if ix < l
+            then do
+              !a <- readPrimArray mpa ix
+              traceShowM a
+            else pure ()
+      go 0
+      !t0 <- quickSelect mpa 0 0 (l - 1) (div l 2 - 1)
+      !t1 <- quickSelect mpa 0 0 (l - 1) (div l 2)
       pure $! f (t0 + t1)
   | otherwise = do
-      !t0 <- select mpa 0 0 (l - 1) (div l 2)
+      !t0 <- quickSelect mpa 0 0 (l - 1) (div l 2)
       pure $! t0
   where
     !l = sizeofMutablePrimArray mpa
@@ -118,21 +127,21 @@ partition !mpa !left !right !pivotIndex = do
             then do
               !_ <- swap mpa storeIndex i 
               go (i + 1) (storeIndex + 1)
-            else pure ()
-        else pure ()
-  !_ <- go left left
-  !_ <- swap mpa right (right - 1)
-  pure (right - 1)
+            else pure storeIndex
+        else pure storeIndex
+  !storeIndex <- go left left
+  !_ <- swap mpa right storeIndex
+  pure storeIndex
 
-select
-  :: forall m a. (Ord a, Prim a, PrimMonad m)
+quickSelect
+  :: forall m a. (Ord a, Prim a, Show a, PrimMonad m)
   => MutablePrimArray (PrimState m) a
   -> Int -- ^ iteration 
   -> Int -- ^ left-most index
   -> Int -- ^ right-most index
   -> Int -- ^ k
   -> m a -- ^ k-th smallest element within [left .. right]
-select !mpa !iter !left !right !k
+quickSelect !mpa !iter !left !right !k
   | left == right = do -- list contains only one element
       !el <- readPrimArray mpa left
       pure $! el
@@ -145,8 +154,8 @@ select !mpa !iter !left !right !k
           !listAtK <- readPrimArray mpa k
           pure $! listAtK
         else if k < pivotIndex
-          then select mpa (iter + 1) left (pivotIndex - 1) k
-          else select mpa (iter + 1) (pivotIndex + 1) right k
+          then quickSelect mpa (iter + 1) left (pivotIndex - 1) k
+          else quickSelect mpa (iter + 1) (pivotIndex + 1) right k
 
 swap
   :: forall m a. (Prim a, PrimMonad m)
@@ -191,16 +200,24 @@ entropy = runST $ do
   unsafeFreezePrimArray m
 
 medianFractional
-  :: forall m a. (Fractional a, Ord a, Prim a, PrimMonad m)
+  :: forall m a. (Fractional a, Ord a, Prim a, Show a, PrimMonad m)
   => MutablePrimArray (PrimState m) a
   -> m a
-medianFractional = median (\x -> x / 2)
+medianFractional = median divFrac
+
+divFrac :: Fractional a => a -> a
+divFrac x = x / 2
+{-# INLINE divFrac #-}
+
+divInt :: Integral a => a -> a
+divInt x = div x 2
+{-# INLINE divInt #-}
 
 medianIntegral
-  :: forall m a. (Integral a, Ord a, Prim a, PrimMonad m)
+  :: forall m a. (Integral a, Ord a, Prim a, Show a, PrimMonad m)
   => MutablePrimArray (PrimState m) a
   -> m a
-medianIntegral = median (\x -> div x 2)
+medianIntegral = median divInt
 
 int8 :: PrimMonad m => MutablePrimArray (PrimState m) Int8 -> m Int8
 int8 x = stToPrim $! medianIntegral x
