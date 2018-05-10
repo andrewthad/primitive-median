@@ -11,10 +11,12 @@ import Data.Ord
 import qualified Data.Map.Strict as M
 import qualified GHC.OldList as L
 
-import qualified Data.Primitive.PrimArray.Median as PAM
+import qualified Data.Primitive.PrimArray.Poo as PAM
 import Control.Monad.ST
 import Data.Primitive.PrimArray
 import Data.Primitive.Types (Prim)
+
+import Data.Int (Int8)
 
 main :: IO ()
 main = defaultMain tests
@@ -26,6 +28,9 @@ tests = testGroup "Median"
   , QC.testProperty "word8"
       $ \xs -> naiveIntegralMedian xs === fastMedian PAM.word8 xs
   ]
+
+int8 :: [Int8] -> Int8
+int8 = fastMedian PAM.int8
 
 fastMedian :: (Prim a) => (forall s. MutablePrimArray s a -> ST s a) -> [a] -> a
 fastMedian f xs = runST $ do

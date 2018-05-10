@@ -2,6 +2,8 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+{-# OPTIONS_GHC -Wall #-}
+
 --{-# OPTIONS_GHC -O2 -Wall -fno-warn-name-shadowing #-}
 
 {-|
@@ -30,13 +32,10 @@ the common convention of taking the arithmetic mean of the two middle
 elements in this case.
 |-}
 
-module Data.Primitive.PrimArray.Median
-  ( int8
-  , word8
-  ) where
+module Data.Primitive.PrimArray.Median where
 
 import Control.Monad.Primitive
-import Control.Monad.ST (runST,ST)
+import Control.Monad.ST (runST)
 import Data.Bits
 import Data.Int
 import Data.Primitive.PrimArray
@@ -63,34 +62,74 @@ partition
   -> Int      -- ^ pivot index
   -> m Int    -- ^ pivot
 partition !mpa !left !right !pivotIndex = do
-  pivotValue <- readPrimArray mpa pivotIndex
-  _ <- swap mpa pivotIndex right -- move pivot to end 
-  storeIndex <- go mpa 0 left left right pivotValue
-  _ <- swap mpa right storeIndex -- move pivot to its final place 
-  pure storeIndex
-  where
-    go
-      :: forall m a. (Prim a, Ord a, PrimMonad m)
-      => MutablePrimArray (PrimState m) a
-      -> Int
-      -> Int
-      -> Int
-      -> Int
-      -> a
-      -> m Int
-    go !mpa !storeIx !ix !left !right !pivotValue =
-      if (ix >= left && ix < right)
+  !pivotValue <- readPrimArray mpa pivotIndex
+  !_ <- swap mpa pivotIndex right -- move pivot to end 
+  !storeIndex <- go mpa 0 left left right pivotValue
+  !_ <- swap mpa right storeIndex -- move pivot to its final place 
+  pure $! storeIndex
+ 
+go
+  :: forall m a. (Prim a, Ord a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> a
+  -> m Int
+go !mpa !storeIx !ix !left !right !pivotValue =
+  if (ix >= left && ix < right)
+    then do
+      !atIx <- readPrimArray mpa ix    
+      if atIx < pivotValue
         then do
-          atIx <- readPrimArray mpa ix    
-          if atIx < pivotValue
-            then do
-              _ <- swap mpa storeIx ix
-              go mpa (storeIx + 1) (ix + 1) left right pivotValue
-            else pure storeIx
+          !_ <- swap mpa storeIx ix
+          go mpa (storeIx + 1) (ix + 1) left right pivotValue
         else pure storeIx
+    else pure $! storeIx
 
 debugMode :: Bool
 debugMode = True
+
+nth
+  :: forall m a. (Prim a, Ord a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> Int -- ^ iteration 
+  -> Int
+  -> m a
+nth !mpa !iter !n
+  | k == n = do
+      !x <- readPrimArray mpa 0
+      pure $! x
+  | k > n  = do
+      let !p = indexEntropy iter `mod` k
+      !pivot <- partition mpa 0 k p
+      !mpa' <- newPrimArray (pivot + 1)
+      !_ <- copyMutablePrimArray mpa' 0 mpa 0 (pivot + 1)
+      nth mpa' (iter + 1) n
+  | otherwise = do
+      let !p = indexEntropy iter `mod` k
+      !pivot <- partition mpa 0 k p
+      !mpa' <- newPrimArray (k - pivot + 1)
+      !_ <- copyMutablePrimArray mpa' 0 mpa (pivot + 1) (k - pivot + 1)
+      nth mpa' (iter + 1) (n - k - 1)
+  where
+    !k = sizeofMutablePrimArray mpa
+
+medianMay
+  :: forall m a. (Num a, Ord a, Prim a, PrimMonad m)
+  => (a -> a) -- divide by 2
+  -> MutablePrimArray (PrimState m) a
+  -> m a
+medianMay !f !mpa
+  | n < 1 = pure $! 0
+  | even n = do
+      !t0 <- nth mpa 0 (div n 2)
+      !t1 <- nth mpa 0 (div n 2 - 1)
+      pure $! f $! (t0 + t1)
+  | otherwise = nth mpa 0 (div n 2)
+  where
+    !n = sizeofMutablePrimArray mpa
 
 partialSort
   :: forall m a. (Ord a, Prim a, PrimMonad m)
@@ -117,9 +156,10 @@ partialSort !iter !mpa !sl !sr !fl !fr
        | pivotIndex == sr -> if pivotIndex == fr
            then partialSort (iter + 1) mpa sl pivotIndex fl fl
            else partialSort (iter + 1) mpa sl (sr - 1) fl fr
-       | fl < pivotIndex -> if True -- what was here
-           then partialSort (iter + 1) mpa pivotIndex sr fl fr
-           else partialSort (iter + 1) mpa sl pivotIndex fl fr
+       | otherwise -> pure ()
+       --fl < pivotIndex
+       --    then partialSort (iter + 1) mpa pivotIndex sr fl fr
+       --    else partialSort (iter + 1) mpa sl pivotIndex fl fr
   where
   debugInfo descr = error
     ("partialSort: " ++ descr ++ " [size=" ++ show (sizeofMutablePrimArray mpa) ++
@@ -133,7 +173,7 @@ medianTemplate
   -> MutablePrimArray (PrimState m) a
   -> m a
 medianTemplate !f !mpa
-  | l < 1 = pure 0
+  | l < 1  = pure 0
   | even l = do
       let !fl = div l 2 - 1
           !fr = div l 2
@@ -184,17 +224,18 @@ entropy = runST $ do
   writePrimArray m 15 (wordToInt (0xB7CB335C587B727C :: Word))
   unsafeFreezePrimArray m
 
-medianFractional
-  :: forall m a. (Fractional a, Ord a, Prim a, PrimMonad m)
-  => MutablePrimArray (PrimState m) a
-  -> m a
-medianFractional = medianTemplate (\x -> x / 2)
+--medianFractional
+--  :: forall m a. (Fractional a, Ord a, Prim a, PrimMonad m)
+--  => MutablePrimArray (PrimState m) a
+--  -> m a
+--medianFractional = medianTemplate (\x -> x / 2)
 
 medianIntegral
   :: forall m a. (Integral a, Ord a, Prim a, PrimMonad m)
   => MutablePrimArray (PrimState m) a
   -> m a
-medianIntegral = medianTemplate (\x -> div x 2)
+medianIntegral = medianMay (\x -> div x 2)
+--medianTemplate (\x -> div x 2)
 
 int8 :: PrimMonad m => MutablePrimArray (PrimState m) Int8 -> m Int8
 int8 x = stToPrim $! medianIntegral x
