@@ -27,6 +27,7 @@ library
     , primitive >= 0.6.3
   exposed-modules:
     Data.Primitive.PrimArray.Median
+    Data.Primitive.PrimArray.Foo 
   default-language: Haskell2010
 
 test-suite test
