@@ -27,6 +27,22 @@ tests = testGroup "MEDIAN"
       $ \xs -> naiveIntegralMedian xs === fastMedian PAM.int8 xs
   , QC.testProperty "Word8"
       $ \xs -> naiveIntegralMedian xs === fastMedian PAM.word8 xs
+  , QC.testProperty "Int16"
+      $ \xs -> naiveIntegralMedian xs === fastMedian PAM.int16 xs
+  , QC.testProperty "Word16"
+      $ \xs -> naiveIntegralMedian xs === fastMedian PAM.word16 xs
+  , QC.testProperty "Int32"
+      $ \xs -> naiveIntegralMedian xs === fastMedian PAM.int32 xs
+  , QC.testProperty "Word32"
+      $ \xs -> naiveIntegralMedian xs === fastMedian PAM.word32 xs
+  , QC.testProperty "Int64"
+      $ \xs -> naiveIntegralMedian xs === fastMedian PAM.int64 xs
+  , QC.testProperty "Word64"
+      $ \xs -> naiveIntegralMedian xs === fastMedian PAM.word64 xs
+  , QC.testProperty "Int"
+      $ \xs -> naiveIntegralMedian xs === fastMedian PAM.int xs
+  , QC.testProperty "Word"
+      $ \xs -> naiveIntegralMedian xs === fastMedian PAM.word xs
   ]
 
 fastMedian :: (Prim a) => (forall s. MutablePrimArray s a -> ST s a) -> [a] -> a

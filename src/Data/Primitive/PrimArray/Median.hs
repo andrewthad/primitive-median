@@ -1,7 +1,19 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Data.Primitive.PrimArray.Median where
+module Data.Primitive.PrimArray.Median
+  ( int
+  , int8
+  , int16
+  , int32
+  , int64
+  
+  , word
+  , word8
+  , word16
+  , word32
+  , word64
+  ) where
 
 import Control.Monad (when)
 import Control.Monad.Primitive
@@ -153,9 +165,33 @@ entropy = runST $ do
   writePrimArray m 15 (wordToInt (0xB7CB335C587B727C :: Word))
   unsafeFreezePrimArray m
 
+int :: PrimMonad m => MutablePrimArray (PrimState m) Int -> m Int
+int x = stToPrim $! median x
+
 int8 :: PrimMonad m => MutablePrimArray (PrimState m) Int8 -> m Int8
 int8 x = stToPrim $! median x
 
+int16 :: PrimMonad m => MutablePrimArray (PrimState m) Int16 -> m Int16
+int16 x = stToPrim $! median x
+
+int32 :: PrimMonad m => MutablePrimArray (PrimState m) Int32 -> m Int32
+int32 x = stToPrim $! median x
+
+int64 :: PrimMonad m => MutablePrimArray (PrimState m) Int64 -> m Int64
+int64 x = stToPrim $! median x
+
+word :: PrimMonad m => MutablePrimArray (PrimState m) Word -> m Word
+word x = stToPrim $! median x
+
 word8 :: PrimMonad m => MutablePrimArray (PrimState m) Word8 -> m Word8
 word8 x = stToPrim $! median x
+
+word16 :: PrimMonad m => MutablePrimArray (PrimState m) Word16 -> m Word16
+word16 x = stToPrim $! median x
+
+word32 :: PrimMonad m => MutablePrimArray (PrimState m) Word32 -> m Word32
+word32 x = stToPrim $! median x
+
+word64 :: PrimMonad m => MutablePrimArray (PrimState m) Word64 -> m Word64
+word64 x = stToPrim $! median x
 
