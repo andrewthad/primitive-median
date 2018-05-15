@@ -33,8 +33,9 @@ median
 median !mpa
   | l < 1 = pure 0
   | otherwise = do
-      !_ <- quickSort mpa 0 0 (l - 1)
+      !_ <- quickSort mpa
       !melody <- readPrimArray mpa (div l 2)
+      -- !melody <- quickSelect mpa (div l 2)
       return melody
   where
     !l = sizeofMutablePrimArray mpa
@@ -47,14 +48,30 @@ foreachWith
   -> m a
 foreachWith xs v f = foldlM (flip f) v xs
 
+-- | Partition takes an index,
+-- and sorts the mutable prim array into three
+-- sections: the elements less than the element
+-- at that index, the element of the index itself,
+-- and the elements greater than the index.
+-- 
+-- It returns the final index of the element.
 partition
+  :: forall m a. (Ord a, Prim a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> Int -- ^ pivot index
+  -> m Int
+partition !mpa !k = partitionInternal mpa 0 (l - 1) k
+  where
+    !l = sizeofMutablePrimArray mpa
+
+partitionInternal
   :: forall m a. (Ord a, Prim a, PrimMonad m)
   => MutablePrimArray (PrimState m) a
   -> Int -- ^ left-most index
   -> Int -- ^ right-most index
   -> Int -- ^ pivot index
   -> m Int
-partition !mpa !left !right !pivotIndex = do
+partitionInternal !mpa !left !right !pivotIndex = do
   !pivotValue <- readPrimArray mpa pivotIndex
   !_ <- swap mpa pivotIndex right
   storeIndex <- foreachWith [left .. right - 1] left (\i storeIndex -> do
@@ -66,22 +83,29 @@ partition !mpa !left !right !pivotIndex = do
       else return storeIndex )
   !_ <- swap mpa storeIndex right
   return storeIndex
-  
+
 quickSort
+  :: forall m a. (Ord a, Prim a, PrimMonad m)
+  => MutablePrimArray (PrimState m) a
+  -> m ()
+quickSort !mpa = quickSortInternal mpa 0 0 (l - 1)
+  where
+    !l = sizeofMutablePrimArray mpa
+
+quickSortInternal
   :: forall m a. (Ord a, Prim a, PrimMonad m)
   => MutablePrimArray (PrimState m) a
   -> Int -- iteration 
   -> Int -- left
   -> Int -- right
   -> m ()
-quickSort !mpa !iter !left !right = when (right > left) $ do
+quickSortInternal !mpa !iter !left !right = when (right > left) $ do
   let !remainingStuffLen = right - left + 1
       !pivotIndex = left + (indexEntropy iter `mod` remainingStuffLen)
-  !newPivot <- partition mpa left right pivotIndex
-  quickSort mpa (iter + 1) left (newPivot - 1)
-  quickSort mpa (iter + 1) (newPivot + 1) right
+  !newPivot <- partitionInternal mpa left right pivotIndex
+  quickSortInternal mpa (iter + 1) left (newPivot - 1)
+  quickSortInternal mpa (iter + 1) (newPivot + 1) right
 
-{-
 quickSelect
   :: forall m a. (Ord a, Prim a, PrimMonad m)
   => MutablePrimArray (PrimState m) a
@@ -104,24 +128,23 @@ quickSelectInternal !mpa !iter !left !right !k
       !el <- readPrimArray mpa left
       pure $! el
   | otherwise = do
-      let !p = left + (indexEntropy iter `mod` remainingStuffLen)
-          !remainingStuffLen = right - left + 1
-      !pivotIndex <- partition mpa left right p
+      let !remainingStuffLen = right - left + 1
+          !pivotIndex = left + (indexEntropy iter `mod` remainingStuffLen)
+      !newPivot <- partitionInternal mpa left right pivotIndex
       let -- (S1, S2, S3) are the parts of the mutable primitive array
           -- that are less than, equal to, and greater than the pivot,
           -- respectively.
           !sz = sizeofMutablePrimArray mpa 
-          !szS1 = pivotIndex
+          !szS1 = newPivot
           !szS2 = 1
-          !szS3 = sz - pivotIndex - 1
+          !szS3 = sz - newPivot- 1
       if szS1 >= k
-        then quickSelectInternal mpa (iter + 1) left (pivotIndex - 1) k
+        then quickSelectInternal mpa (iter + 1) left (newPivot - 1) k
         else if szS1 + szS2 >= k
           then do
-            !listAtPivot <- readPrimArray mpa pivotIndex
+            !listAtPivot <- readPrimArray mpa newPivot
             pure $! listAtPivot
-          else quickSelectInternal mpa (iter + 1) (pivotIndex + 1) right (k - szS1 - szS2)
--}
+          else quickSelectInternal mpa (iter + 1) (newPivot + 1) right (k - szS1 - szS2)
 
 swap
   :: forall m a. (Prim a, PrimMonad m)
