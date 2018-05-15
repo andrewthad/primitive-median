@@ -11,7 +11,7 @@ import Data.Ord
 import qualified Data.Map.Strict as M
 import qualified GHC.OldList as L
 
-import qualified Data.Primitive.PrimArray.Foo as PAM
+import qualified Data.Primitive.PrimArray.Median as PAM
 import Control.Monad.ST
 import Data.Primitive.PrimArray
 import Data.Primitive.Types (Prim)
@@ -22,15 +22,12 @@ main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Median"
-  [ QC.testProperty "int8"
+tests = testGroup "MEDIAN"
+  [ QC.testProperty "Int8"
       $ \xs -> naiveIntegralMedian xs === fastMedian PAM.int8 xs
-  , QC.testProperty "word8"
+  , QC.testProperty "Word8"
       $ \xs -> naiveIntegralMedian xs === fastMedian PAM.word8 xs
   ]
-
-int8 :: [Int8] -> Int8
-int8 = fastMedian PAM.int8
 
 fastMedian :: (Prim a) => (forall s. MutablePrimArray s a -> ST s a) -> [a] -> a
 fastMedian f xs = runST $ do
@@ -42,8 +39,7 @@ fastMedian f xs = runST $ do
 naiveIntegralMedian :: (Integral a, Ord a) => [a] -> a
 naiveIntegralMedian xs
   | sz < 1 = 0
-  | odd sz = sortedList !! (div sz 2)
-  | otherwise = div ((sortedList !! (div sz 2)) + (sortedList !! (div sz 2 - 1))) 2
+  | otherwise = sortedList !! (div sz 2)
   where
-  sz = L.length xs
-  sortedList = L.sort xs
+    sz = L.length xs
+    sortedList = L.sort xs
