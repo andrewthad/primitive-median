@@ -13,6 +13,8 @@ module Data.Primitive.PrimArray.Median
   , word16
   , word32
   , word64
+
+  , median
   ) where
 
 import Control.Monad (when)
